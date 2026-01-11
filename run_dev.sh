@@ -22,14 +22,6 @@ load_env_vars() {
 setup_config() {
   BACKEND_PORT="${PNAS_PORT:-8000}"
   FRONTEND_PORT=5173
-  DEV_PG_NAME="${DEV_PG_NAME:-pnas_dev_pg}"
-  DEV_PG_PORT="${DEV_PG_PORT:-5432}"
-  DEV_PG_IMAGE="${DEV_PG_IMAGE:-postgres:16-alpine}"
-  DEV_PG_DB="${DEV_PG_DB:-pnas}"
-  DEV_PG_USER="${DEV_PG_USER:-postgres}"
-  DEV_PG_PASSWORD="${DEV_PG_PASSWORD:-${POSTGRES_PASSWORD:-postgres}}"
-  DEV_PG_HOST="${DEV_PG_HOST:-127.0.0.1}"
-  DEV_PG_PORT_ALT="${DEV_PG_PORT_ALT:-55432}"
 }
 
 # Kill processes on a given port
@@ -73,54 +65,7 @@ port_in_use() {
   ss -lntp | awk -v p=":${port}" '$4 ~ p {f=1} END {exit f?0:1}'
 }
 
-# Check if we can authenticate to postgres
-can_auth_postgres() {
-  local host="$1"
-  local port="$2"
-  local user="$3"
-  local db="$4"
-  if command -v psql >/dev/null 2>&1; then
-    PGPASSWORD="${DEV_PG_PASSWORD}" psql -h "$host" -p "$port" -U "$user" -d "$db" -c '\q' >/dev/null 2>&1
-    return $?
-  fi
-  return 1
-}
 
-# Setup and start database container
-setup_database() {
-  if port_in_use "$DEV_PG_PORT"; then
-    ALT_NAME="${DEV_PG_NAME}_${DEV_PG_PORT_ALT}"
-    if ! docker ps -a --format '{{.Names}}' | grep -qx "$ALT_NAME"; then
-      docker run -d --name "$ALT_NAME" -p "${DEV_PG_PORT_ALT}:5432" \
-        -e POSTGRES_USER="$DEV_PG_USER" \
-        -e POSTGRES_PASSWORD="$DEV_PG_PASSWORD" \
-        -e POSTGRES_DB="$DEV_PG_DB" \
-        "$DEV_PG_IMAGE"
-    fi
-    if [ "$(docker inspect -f '{{.State.Running}}' "$ALT_NAME")" != "true" ]; then
-      docker start "$ALT_NAME"
-    fi
-    until docker exec "$ALT_NAME" pg_isready -U "$DEV_PG_USER" >/dev/null 2>&1; do
-      sleep 1
-    done
-    export DATABASE_URL="postgres://${DEV_PG_USER}:${DEV_PG_PASSWORD}@127.0.0.1:${DEV_PG_PORT_ALT}/${DEV_PG_DB}"
-  else
-    if ! docker ps -a --format '{{.Names}}' | grep -qx "$DEV_PG_NAME"; then
-      docker run -d --name "$DEV_PG_NAME" -p "${DEV_PG_PORT}:5432" \
-        -e POSTGRES_USER="$DEV_PG_USER" \
-        -e POSTGRES_PASSWORD="$DEV_PG_PASSWORD" \
-        -e POSTGRES_DB="$DEV_PG_DB" \
-        "$DEV_PG_IMAGE"
-    fi
-    if [ "$(docker inspect -f '{{.State.Running}}' "$DEV_PG_NAME")" != "true" ]; then
-      docker start "$DEV_PG_NAME"
-    fi
-    until docker exec "$DEV_PG_NAME" pg_isready -U "$DEV_PG_USER" >/dev/null 2>&1; do
-      sleep 1
-    done
-    export DATABASE_URL="postgres://${DEV_PG_USER}:${DEV_PG_PASSWORD}@127.0.0.1:${DEV_PG_PORT}/${DEV_PG_DB}"
-  fi
-}
 
 # Start backend and frontend services
 start_services() {
@@ -135,7 +80,6 @@ start_services() {
   WEB_PID=$!
   echo "Backend: http://localhost:${BACKEND_PORT}"
   echo "Frontend: http://localhost:${FRONTEND_PORT}"
-  echo "Database: ${DATABASE_URL}"
   popd
   
   # Cleanup function to kill background processes
@@ -158,12 +102,12 @@ main() {
   kill_by_port "$BACKEND_PORT"
   kill_by_port "$FRONTEND_PORT"
   
-  setup_database
-  
   # Setup additional environment variables
   export JWT_SECRET="${JWT_SECRET:-dev-secret}"
   export PNAS_DEV_STORAGE_PATH="${PNAS_DEV_STORAGE_PATH:-$(pwd)/devdata}"
   mkdir -p "$PNAS_DEV_STORAGE_PATH"
+  touch "$PNAS_DEV_STORAGE_PATH/pnas.db"
+  chmod 600 "$PNAS_DEV_STORAGE_PATH/pnas.db"
   
   start_services
 }

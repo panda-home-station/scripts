@@ -19,8 +19,6 @@ fi
 # 2. Define Variables (Defaults matching run_dev.sh)
 BACKEND_PORT="${PNAS_PORT:-8000}"
 FRONTEND_PORT=5173
-DEV_PG_NAME="${DEV_PG_NAME:-pnas_dev_pg}"
-DEV_PG_PORT_ALT="${DEV_PG_PORT_ALT:-55432}"
 
 echo "Cleaning up PNAS development environment..."
 
@@ -64,28 +62,17 @@ echo "--- Stopping Processes ---"
 kill_by_port "$BACKEND_PORT"
 kill_by_port "$FRONTEND_PORT"
 
-# 5. Clean Docker Containers and Volumes
-echo "--- Cleaning Docker ---"
+# 5. Clean SQLite Database
+echo "--- Cleaning SQLite Database ---"
 
-clean_docker_container() {
-  local name="$1"
-  if docker ps -a --format '{{.Names}}' | grep -qx "$name"; then
-    echo "Found container: $name"
-    echo "Stopping $name..."
-    docker stop "$name" >/dev/null 2>&1 || true
-    echo "Removing $name and associated volumes..."
-    docker rm -v "$name" >/dev/null 2>&1 || true
-    echo "Done."
-  else
-    echo "Container $name not found."
-  fi
-}
-
-# Clean default container
-clean_docker_container "$DEV_PG_NAME"
-
-# Clean alt container (if it exists)
-ALT_NAME="${DEV_PG_NAME}_${DEV_PG_PORT_ALT}"
-clean_docker_container "$ALT_NAME"
+# Clean SQLite database file
+DB_FILE="/home/zac/phs/nas/nasserver/pnas.db"
+if [ -f "$DB_FILE" ]; then
+  echo "Removing SQLite database file: $DB_FILE"
+  rm -f "$DB_FILE"
+  echo "SQLite database file removed."
+else
+  echo "SQLite database file not found at $DB_FILE"
+fi
 
 echo "Cleanup complete!"
