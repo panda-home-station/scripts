@@ -104,10 +104,12 @@ main() {
   
   # Setup additional environment variables
   export JWT_SECRET="${JWT_SECRET:-dev-secret}"
-  export PNAS_DEV_STORAGE_PATH="${PNAS_DEV_STORAGE_PATH:-$(pwd)/devdata}"
+  export PNAS_DEV_STORAGE_PATH="${PNAS_DEV_STORAGE_PATH:-/var/panda/system}"
   mkdir -p "$PNAS_DEV_STORAGE_PATH"
-  touch "$PNAS_DEV_STORAGE_PATH/pnas.db"
-  chmod 600 "$PNAS_DEV_STORAGE_PATH/pnas.db"
+  mkdir -p "$PNAS_DEV_STORAGE_PATH/vol1"
+  mkdir -p "$PNAS_DEV_STORAGE_PATH/db"
+  touch "$PNAS_DEV_STORAGE_PATH/db/pnas.db"
+  chmod 600 "$PNAS_DEV_STORAGE_PATH/db/pnas.db"
   
   start_services
 }

@@ -66,7 +66,7 @@ kill_by_port "$FRONTEND_PORT"
 echo "--- Cleaning SQLite Database ---"
 
 # Clean SQLite database file
-DB_FILE="/home/zac/phs/nas/nasserver/pnas.db"
+DB_FILE="/var/panda/system/db/pnas.db"
 if [ -f "$DB_FILE" ]; then
   echo "Removing SQLite database file: $DB_FILE"
   rm -f "$DB_FILE"
