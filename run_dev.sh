@@ -9,7 +9,6 @@ load_env_vars() {
       if [[ $line =~ ^# || -z $line ]]; then continue; fi
       if [[ $line =~ ^([A-Za-z_][A-Za-z0-9_]*)\= ]]; then
         key="${BASH_REMATCH[1]}"
-        value="${line#*=}"
         if [ -z "${!key:-}" ]; then
           export "$line"
         fi
@@ -22,6 +21,7 @@ load_env_vars() {
 setup_config() {
   BACKEND_PORT="${PNAS_PORT:-8000}"
   FRONTEND_PORT=5173
+  AGENT_PORT=9000
 }
 
 # Kill processes on a given port
@@ -44,75 +44,77 @@ kill_by_port() {
   fi
 }
 
-# Check if a port is open on a host
-is_port_open() {
-  local host="$1"
-  local port="$2"
-  if command -v nc >/dev/null 2>&1; then
-    nc -z "$host" "$port" >/dev/null 2>&1
-    return $?
-  fi
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -iTCP -sTCP:LISTEN -nP | grep -q ":$port"
-    return $?
-  fi
-  timeout 1 bash -c ">/dev/tcp/${host}/${port}" >/dev/null 2>&1
-}
-
-# Check if a port is in use
-port_in_use() {
-  local port="$1"
-  ss -lntp | awk -v p=":${port}" '$4 ~ p {f=1} END {exit f?0:1}'
-}
-
-
-
 # Start backend and frontend services
 start_services() {
-  pushd ./nasserver
+  echo "🚀 Starting Services..."
+
+  # 1. Backend (Rust)
+  pushd ./nasserver > /dev/null
+  echo "   -> Starting NAS Server (Rust)..."
   PNAS_PORT="$BACKEND_PORT" cargo run &
   SERVER_PID=$!
-  popd
+  popd > /dev/null
   
-  pushd ./webdesktop
-  npm install
-  VITE_PNAS_PORT="$BACKEND_PORT" npm run dev -- --host --port "${FRONTEND_PORT}" &
+  # 2. Agent Service (Python)
+  pushd ./agentservice > /dev/null
+  echo "   -> Starting Agent Service..."
+  if [ ! -d "venv" ]; then
+    python3 -m venv venv
+  fi
+  source venv/bin/activate
+  pip install -r requirements.txt > /dev/null 2>&1
+  python3 app/main.py &
+  AGENT_PID=$!
+  popd > /dev/null
+  
+  # 3. Frontend (React)
+  pushd ./webdesktop > /dev/null
+  echo "   -> Starting Web Desktop..."
+  npm install > /dev/null 2>&1
+  VITE_PNAS_PORT="$BACKEND_PORT" npm run dev -- --host --port "${FRONTEND_PORT}" > /dev/null 2>&1 &
   WEB_PID=$!
-  echo "Backend: http://localhost:${BACKEND_PORT}"
-  echo "Frontend: http://localhost:${FRONTEND_PORT}"
-  popd
+  popd > /dev/null
   
-  # Cleanup function to kill background processes
+  echo ""
+  echo "✅ Environment Running!"
+  echo "   Backend:       http://localhost:${BACKEND_PORT}"
+  echo "   Agent Service: http://localhost:${AGENT_PORT}"
+  echo "   Frontend:      http://localhost:${FRONTEND_PORT}"
+  echo ""
+  
+  # Cleanup function
   cleanup() {
+    echo ""
+    echo "🛑 Shutting down..."
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     kill "$WEB_PID" >/dev/null 2>&1 || true
+    kill "$AGENT_PID" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT
   
-  # Wait for background processes
   wait
 }
 
-# Main function to orchestrate the dev environment setup
 main() {
   load_env_vars
   setup_config
   
-  # Kill processes on backend and frontend ports
+  # Kill existing processes
   kill_by_port "$BACKEND_PORT"
   kill_by_port "$FRONTEND_PORT"
+  kill_by_port "$AGENT_PORT"
   
-  # Setup additional environment variables
-  export JWT_SECRET="${JWT_SECRET:-dev-secret}"
-  export PNAS_DEV_STORAGE_PATH="${PNAS_DEV_STORAGE_PATH:-/var/panda/system}"
-  mkdir -p "$PNAS_DEV_STORAGE_PATH"
-  mkdir -p "$PNAS_DEV_STORAGE_PATH/vol1"
-  mkdir -p "$PNAS_DEV_STORAGE_PATH/db"
-  touch "$PNAS_DEV_STORAGE_PATH/db/pnas.db"
-  chmod 600 "$PNAS_DEV_STORAGE_PATH/db/pnas.db"
+  # Setup Environment Variables
+  export PNAS_DEV_STORAGE_PATH="${PNAS_DEV_STORAGE_PATH:-$(pwd)/fs}"
+  export PNAS_VIRTUAL_ROOT_BASE="$PNAS_DEV_STORAGE_PATH/virtual_roots"
+  
+  echo "🔧 Configuring Environment:"
+  echo "   Storage Path: $PNAS_DEV_STORAGE_PATH"
+  echo "   Virtual Root: $PNAS_VIRTUAL_ROOT_BASE"
+  
+  # Note: Directory creation and mapping is now handled by nasserver (Rust) on startup.
   
   start_services
 }
 
-# Run the main function
 main
