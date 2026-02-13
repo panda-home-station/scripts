@@ -26,7 +26,7 @@ log_err() { echo -e "${RED}❌ $1${NC}"; }
 cleanup() {
   local exit_code=$?
   echo ""
-  log_warn "正在停止所有服务并清理环境..."
+  log_warn "Stopping all services and cleaning environment..."
   
   # Kill background processes if they exist
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
@@ -37,9 +37,9 @@ cleanup() {
   kill_by_port 5173
   
   if [ $exit_code -ne 0 ]; then
-    log_err "由于错误导致退出 (Exit code: $exit_code)"
+    log_err "Exiting due to error (Exit code: $exit_code)"
   else
-    log_info "已成功关闭所有服务。"
+    log_info "All services closed successfully."
   fi
 }
 
@@ -54,7 +54,7 @@ kill_by_port() {
   fi
 
   if [ -n "$pids" ]; then
-    log_warn "端口 $port 被占用，正在清理进程: $pids"
+    log_warn "Port $port is in use, cleaning up process: $pids"
     kill -9 $pids 2>/dev/null || true
   fi
 }
@@ -62,7 +62,7 @@ kill_by_port() {
 # Load environment variables from .env file
 load_env_vars() {
   if [ -f .env ]; then
-    log_info "正在从 .env 加载环境变量..."
+    log_info "Loading environment variables from .env..."
     set -a
     # shellcheck disable=SC1091
     source .env
@@ -88,7 +88,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
   elif [ -S "/tmp/.s.PGSQL.5432" ]; then
     export DATABASE_URL="postgres:///pnas_db?host=/tmp"
   else
-    log_warn "未检测到 PostgreSQL Unix Socket，尝试默认连接..."
+    log_warn "PostgreSQL Unix Socket not detected, trying default connection..."
     export DATABASE_URL="postgres:///pnas_db"
   fi
 fi
@@ -96,49 +96,49 @@ fi
 # Storage Path (Backend handles sub-directories)
 export PNAS_DEV_STORAGE_PATH="${PNAS_DEV_STORAGE_PATH:-$PROJECT_ROOT/fs}"
 
-log_info "配置信息:"
-echo "   项目根目录: $PROJECT_ROOT"
-echo "   存储路径:   $PNAS_DEV_STORAGE_PATH"
-echo "   后端端口:   $BACKEND_PORT"
-echo "   前端端口:   $FRONTEND_PORT"
+log_info "Configuration:"
+echo "   Project Root: $PROJECT_ROOT"
+echo "   Storage Path:   $PNAS_DEV_STORAGE_PATH"
+echo "   Backend Port:   $BACKEND_PORT"
+echo "   Frontend Port:   $FRONTEND_PORT"
 
 # 2. Pre-flight Cleanup
 kill_by_port "$BACKEND_PORT"
 kill_by_port "$FRONTEND_PORT"
 
 # 3. Start Backend (Rust)
-log_info "正在启动后端服务 (Rust)..."
+log_info "Starting backend service (Rust)..."
 pushd nasserver > /dev/null
 PNAS_PORT="$BACKEND_PORT" cargo run --bin server &
 SERVER_PID=$!
 popd > /dev/null
 
 # Quick health check for backend
-log_info "正在等待后端服务就绪 (端口 $BACKEND_PORT)..."
+log_info "Waiting for backend service to be ready (port $BACKEND_PORT)..."
 MAX_RETRIES=60
 RETRY_COUNT=0
 while ! (echo > /dev/tcp/localhost/"$BACKEND_PORT") >/dev/null 2>&1; do
   if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    log_err "后端服务进程已崩溃！"
+    log_err "Backend service process crashed!"
     exit 1
   fi
   sleep 1
   RETRY_COUNT=$((RETRY_COUNT + 1))
   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-    log_err "等待后端服务超时 (60秒)"
+    log_err "Timed out waiting for backend service (60s)"
     exit 1
   fi
   if [ $((RETRY_COUNT % 5)) -eq 0 ]; then
-    echo "   仍在等待后端编译并启动..."
+    echo "   Still waiting for backend to compile and start..."
   fi
 done
-log_info "后端服务已就绪。"
+log_info "Backend service is ready."
 
 # 4. Start Frontend (React/Vite)
-log_info "正在启动前端服务 (Web Desktop)..."
+log_info "Starting frontend service (Web Desktop)..."
 pushd webdesktop > /dev/null
 if [ ! -d "node_modules" ]; then
-  log_warn "检测到 node_modules 不存在，正在安装依赖..."
+  log_warn "node_modules not found, installing dependencies..."
   npm install
 fi
 VITE_PNAS_PORT="$BACKEND_PORT" npm run dev -- --host --port "${FRONTEND_PORT}" &
@@ -148,15 +148,15 @@ popd > /dev/null
 # Quick health check for frontend
 sleep 2
 if ! kill -0 "$WEB_PID" 2>/dev/null; then
-  log_err "前端服务启动失败！"
+  log_err "Frontend service failed to start!"
   exit 1
 fi
 
 echo ""
-log_info "✅ 所有服务已启动！"
-echo -e "   后端地址: ${YELLOW}http://localhost:${BACKEND_PORT}${NC}"
-echo -e "   前端地址: ${YELLOW}http://localhost:${FRONTEND_PORT}${NC}"
-echo -e "   ${YELLOW}提示: 按 Ctrl+C 停止运行${NC}"
+log_info "✅ All services started!"
+echo -e "   Backend URL: ${YELLOW}http://localhost:${BACKEND_PORT}${NC}"
+echo -e "   Frontend URL: ${YELLOW}http://localhost:${FRONTEND_PORT}${NC}"
+echo -e "   ${YELLOW}Hint: Press Ctrl+C to stop${NC}"
 echo ""
 
 # Wait for processes. Using wait -n to exit if any background process fails
