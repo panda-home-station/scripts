@@ -8,10 +8,9 @@ RUN cd webdesktop && npm run build
 FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/rust:1.83 AS server-builder
 RUN apt-get update && apt-get install -y --no-install-recommends musl-tools pkg-config ca-certificates && rm -rf /var/lib/apt/lists/* \
   && rustup target add x86_64-unknown-linux-musl
-WORKDIR /src/server
-COPY server/Cargo.toml server/Cargo.lock* ./
-COPY server/src ./src
-RUN cargo build --release --target x86_64-unknown-linux-musl
+WORKDIR /src/nasserver
+COPY nasserver .
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin server
 
 FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/alpine:3.19
 RUN apk add --no-cache postgresql16 postgresql16-client openssl su-exec
@@ -24,7 +23,7 @@ ENV FS_BASE_DIR=/srv/nas
 ENV POSTGRES_PASSWORD=postgres
 WORKDIR /srv
 
-COPY --from=server-builder /src/server/target/x86_64-unknown-linux-musl/release/pnas-server /usr/local/bin/pnas-server
+COPY --from=server-builder /src/nasserver/target/x86_64-unknown-linux-musl/release/server /usr/local/bin/pnas-server
 COPY --from=web-builder /src/webdesktop/dist /usr/share/pnas/www
 
 RUN mkdir -p /var/lib/postgresql/data /var/run/postgresql "$SYSTEM_DIR" && chown -R postgres:postgres /var/lib/postgresql /var/run/postgresql
