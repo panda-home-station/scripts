@@ -36,6 +36,9 @@ cleanup() {
   kill_by_port "${PNAS_PORT:-8000}"
   kill_by_port 5173
   
+  # Cleanup FUSE mounts
+  cleanup_fuse_mounts
+  
   if [ $exit_code -ne 0 ]; then
     log_err "Exiting due to error (Exit code: $exit_code)"
   else
@@ -56,6 +59,28 @@ kill_by_port() {
   if [ -n "$pids" ]; then
     log_warn "Port $port is in use, cleaning up process: $pids"
     kill -9 $pids 2>/dev/null || true
+  fi
+}
+
+# Cleanup FUSE mounts
+cleanup_fuse_mounts() {
+  # Use current PNAS_DEV_STORAGE_PATH or default
+  local storage_path="${PNAS_DEV_STORAGE_PATH:-$PROJECT_ROOT/fs}"
+  local user_mount_dir="$storage_path/vol1/User"
+
+  if [ -d "$user_mount_dir" ]; then
+    # Iterate over directories in User mount dir
+    for mount_point in "$user_mount_dir"/*; do
+      # Check if it exists (even if broken link/mount)
+      if [ -e "$mount_point" ]; then
+         # Try to unmount quietly. 
+         # We use -u (unmount) and -z (lazy) to ensure it detaches even if busy.
+         # Redirect stderr to avoid noise if it's not mounted.
+         if fusermount -u -z "$mount_point" 2>/dev/null; then
+            log_warn "Unmounted stale FUSE mount: $mount_point"
+         fi
+      fi
+    done
   fi
 }
 
@@ -105,6 +130,7 @@ echo "   Frontend Port:   $FRONTEND_PORT"
 # 2. Pre-flight Cleanup
 kill_by_port "$BACKEND_PORT"
 kill_by_port "$FRONTEND_PORT"
+cleanup_fuse_mounts
 
 # 3. Start Backend (Rust)
 log_info "Starting backend service (Rust)..."
