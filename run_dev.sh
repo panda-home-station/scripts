@@ -155,17 +155,16 @@ else
   BIN_PATH="target/debug/nasserver"
 fi
 
-# Build if binary not present or forced
-if [ ! -x "${BIN_PATH}" ] || [ "${PNAS_FORCE_BUILD:-0}" = "1" ]; then
-  log_info "Building backend binary (${BUILD_MODE})..."
-  cargo build --bin nasserver ${BUILD_FLAGS}
-fi
+# Always build to ensure changes are picked up (incremental build is fast)
+log_info "Building backend binary (${BUILD_MODE})..."
+cargo build --bin nasserver ${BUILD_FLAGS}
 
 PNAS_API_PORT="$BACKEND_PORT" \
 PNAS_STATIC_PORT="$STATIC_PORT" \
-"${BIN_PATH}" &
+PNAS_STORAGE_PATH="$PNAS_STORAGE_PATH" \
 "${BIN_PATH}" &
 SERVER_PID=$!
+popd > /dev/null
 
 # Quick health check for backend
 log_info "Waiting for backend service to be ready (port $BACKEND_PORT)..."
