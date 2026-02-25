@@ -33,7 +33,7 @@ cleanup() {
   [ -n "$WEB_PID" ] && kill "$WEB_PID" 2>/dev/null || true
   
   # Ensure ports are actually freed
-  kill_by_port "${PNAS_PORT:-8000}"
+  kill_by_port "${BACKEND_PORT:-8000}"
   kill_by_port 5173
   
   # Cleanup FUSE mounts
@@ -44,6 +44,11 @@ cleanup() {
   else
     log_info "All services closed successfully."
   fi
+}
+
+# Mask sensitive info in database URL
+mask_db_url() {
+  echo "$1" | sed -E 's#(://[^:/@]+):[^@]*@#\1:****@#'
 }
 
 # Kill processes on a given port
@@ -103,29 +108,37 @@ trap cleanup EXIT INT TERM
 # 1. Environment Setup
 load_env_vars
 
-BACKEND_PORT="${PNAS_PORT:-8000}"
+BACKEND_PORT="${PNAS_API_PORT:-${PNAS_PORT:-8000}}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+# Static server port (alias support): prefer PNAS_STATIC_PORT, fallback STATIC_PORT, then 8080
+STATIC_PORT="${PNAS_STATIC_PORT:-${STATIC_PORT:-8080}}"
+# Export both names to satisfy backend expectations without affecting release
+export PNAS_STATIC_PORT="$STATIC_PORT"
+export STATIC_PORT="$STATIC_PORT"
 
-# Database Configuration (PostgreSQL Peer Auth)
+# Database Configuration
 if [ -z "${DATABASE_URL:-}" ]; then
-  if [ -S "/var/run/postgresql/.s.PGSQL.5432" ]; then
-    export DATABASE_URL="postgres:///pnas_db?host=/var/run/postgresql"
-  elif [ -S "/tmp/.s.PGSQL.5432" ]; then
-    export DATABASE_URL="postgres:///pnas_db?host=/tmp"
-  else
-    log_warn "PostgreSQL Unix Socket not detected, trying default connection..."
-    export DATABASE_URL="postgres:///pnas_db"
+  log_err "DATABASE_URL 未设置。请在项目根目录 .env 中或通过环境变量设置 DATABASE_URL 后再运行。"
+  exit 1
+fi
+
+log_info "Database: $(mask_db_url "$DATABASE_URL")"
+if command -v psql >/dev/null 2>&1; then
+  if ! psql "$DATABASE_URL" -c 'select 1' -tA >/dev/null 2>&1; then
+    log_err "无法连接数据库，请检查 DATABASE_URL 是否正确。"
+    exit 1
   fi
 fi
 
 # Storage Path (Backend handles sub-directories)
-export PNAS_DEV_STORAGE_PATH="${PNAS_DEV_STORAGE_PATH:-$PROJECT_ROOT/fs}"
+export PNAS_DEV_STORAGE_PATH="${PNAS_STORAGE_PATH:-${PNAS_DEV_STORAGE_PATH:-$PROJECT_ROOT/fs}}"
 
 log_info "Configuration:"
 echo "   Project Root: $PROJECT_ROOT"
 echo "   Storage Path:   $PNAS_DEV_STORAGE_PATH"
 echo "   Backend Port:   $BACKEND_PORT"
-echo "   Frontend Port:   $FRONTEND_PORT"
+echo "   Frontend Port:  $FRONTEND_PORT"
+echo "   Static Port:    $STATIC_PORT"
 
 # 2. Pre-flight Cleanup
 kill_by_port "$BACKEND_PORT"
@@ -135,7 +148,27 @@ cleanup_fuse_mounts
 # 3. Start Backend (Rust)
 log_info "Starting backend service (Rust)..."
 pushd nasserver > /dev/null
-PNAS_PORT="$BACKEND_PORT" cargo run --bin server &
+# Build mode: debug (default) or release via PNAS_BUILD_MODE=release
+BUILD_MODE="${PNAS_BUILD_MODE:-debug}"
+if [ "${BUILD_MODE}" = "release" ]; then
+  BUILD_FLAGS="--release"
+  BIN_PATH="target/release/nasserver"
+else
+  BUILD_FLAGS=""
+  BIN_PATH="target/debug/nasserver"
+fi
+
+# Build if binary not present or forced
+if [ ! -x "${BIN_PATH}" ] || [ "${PNAS_FORCE_BUILD:-0}" = "1" ]; then
+  log_info "Building backend binary (${BUILD_MODE})..."
+  cargo build --bin nasserver ${BUILD_FLAGS}
+fi
+
+PNAS_PORT="$BACKEND_PORT" \
+PNAS_API_PORT="$BACKEND_PORT" \
+PNAS_STATIC_PORT="$STATIC_PORT" \
+STATIC_PORT="$STATIC_PORT" \
+"${BIN_PATH}" &
 SERVER_PID=$!
 popd > /dev/null
 
