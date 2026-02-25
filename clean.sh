@@ -10,7 +10,7 @@ if [ -f .env ]; then
 fi
 
 # 2. Define Variables
-BACKEND_PORT="${PNAS_PORT:-8000}"
+BACKEND_PORT="${PNAS_API_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
 echo "Cleaning up PNAS development environment..."

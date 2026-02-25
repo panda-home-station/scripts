@@ -69,8 +69,8 @@ kill_by_port() {
 
 # Cleanup FUSE mounts
 cleanup_fuse_mounts() {
-  # Use current PNAS_DEV_STORAGE_PATH or default
-  local storage_path="${PNAS_DEV_STORAGE_PATH:-$PROJECT_ROOT/fs}"
+  # Use current PNAS_STORAGE_PATH or default
+  local storage_path="${PNAS_STORAGE_PATH:-$PROJECT_ROOT/fs}"
   local user_mount_dir="$storage_path/vol1/User"
 
   if [ -d "$user_mount_dir" ]; then
@@ -108,13 +108,10 @@ trap cleanup EXIT INT TERM
 # 1. Environment Setup
 load_env_vars
 
-BACKEND_PORT="${PNAS_API_PORT:-${PNAS_PORT:-8000}}"
+BACKEND_PORT="${PNAS_API_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
-# Static server port (alias support): prefer PNAS_STATIC_PORT, fallback STATIC_PORT, then 8080
-STATIC_PORT="${PNAS_STATIC_PORT:-${STATIC_PORT:-8080}}"
-# Export both names to satisfy backend expectations without affecting release
+STATIC_PORT="${PNAS_STATIC_PORT:-8080}"
 export PNAS_STATIC_PORT="$STATIC_PORT"
-export STATIC_PORT="$STATIC_PORT"
 
 # Database Configuration
 if [ -z "${DATABASE_URL:-}" ]; then
@@ -131,11 +128,11 @@ if command -v psql >/dev/null 2>&1; then
 fi
 
 # Storage Path (Backend handles sub-directories)
-export PNAS_DEV_STORAGE_PATH="${PNAS_STORAGE_PATH:-${PNAS_DEV_STORAGE_PATH:-$PROJECT_ROOT/fs}}"
+export PNAS_STORAGE_PATH="${PNAS_STORAGE_PATH:-$PROJECT_ROOT/fs}"
 
 log_info "Configuration:"
 echo "   Project Root: $PROJECT_ROOT"
-echo "   Storage Path:   $PNAS_DEV_STORAGE_PATH"
+echo "   Storage Path:   $PNAS_STORAGE_PATH"
 echo "   Backend Port:   $BACKEND_PORT"
 echo "   Frontend Port:  $FRONTEND_PORT"
 echo "   Static Port:    $STATIC_PORT"
@@ -164,13 +161,11 @@ if [ ! -x "${BIN_PATH}" ] || [ "${PNAS_FORCE_BUILD:-0}" = "1" ]; then
   cargo build --bin nasserver ${BUILD_FLAGS}
 fi
 
-PNAS_PORT="$BACKEND_PORT" \
 PNAS_API_PORT="$BACKEND_PORT" \
 PNAS_STATIC_PORT="$STATIC_PORT" \
-STATIC_PORT="$STATIC_PORT" \
+"${BIN_PATH}" &
 "${BIN_PATH}" &
 SERVER_PID=$!
-popd > /dev/null
 
 # Quick health check for backend
 log_info "Waiting for backend service to be ready (port $BACKEND_PORT)..."
